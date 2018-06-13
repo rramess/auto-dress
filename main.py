@@ -1,187 +1,156 @@
-import numpy as np
-import pandas as pds
-import time
-
-import keras
 from keras.models import Sequential
 from keras.layers import Dense, Conv2D, MaxPooling2D, Dropout, Flatten
+from keras.utils import to_categorical
 from keras.preprocessing.image import ImageDataGenerator
-
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import classification_report
-
+import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plot
 
-#globals
+row, col = 28, 28 #Store size of data
+shape = (row, col, 1) #Define shape
+augment = 0
 classes = 10
-epochs = 30
-batch = 88
-height = 28
-width = 28
+epochs = 1
+batch_size = 10
 
+def load_train (path):
+    train = pd.read_csv('fashionmnist/fashion-mnist_train.csv') #Load training data
 
-def load_train(path):
-    train_csv = pds.read_csv(path)   #read the train data csv file
-    #print(train_csv.head())
+    data = np.array(train.iloc[:, 1:]) #Stores all non-label data
+    labels = to_categorical(np.array(train.iloc[:, 0])) #Stores all labels
 
-    # first column is the class label, and every following column has values for each of the 784 pixels in the image
-    x = train_csv.iloc[:, 1:].values #pixel values in numpy array format
-    y = train_csv.iloc[:, 0].values #labels also in numpy array format
-    #print(type(x_train))
+    # print(data.shape)
+    # print(labels.shape)
 
-    print("TRAIN: The input shape is" + str(x.shape))
-    print("TRAIN: The labels shape is" + str(y.shape))
+    train_data, valid_data, train_label, valid_label = train_test_split(data, labels, test_size=0.2, random_state=15)
 
-    #convert vector to binary class matrix
-    y = keras.utils.to_categorical(y)
+    # print(train_data.shape)
+    # print(valid_data.shape)
 
-    #split into train and validation subsets for better optimization
-    x_train, x_val, y_train, y_val = train_test_split(x, y, test_size = 0.2, random_state = 11)
+    train_data = train_data.reshape(train_data.shape[0], row, col, 1)
+    valid_data = valid_data.reshape(valid_data.shape[0], row, col, 1)
 
-    #reshape input train into images of single channel
-    x_train = x_train.reshape(x_train.shape[0], height, width, 1)
-    x_val = x_val.reshape(x_val.shape[0], height, width, 1)
-    print("TRAIN: The train set is of shape: " + str(x_train.shape))
-    print("TRAIN: The validation set is of shape: " + str(x_val.shape))
+    train_data = train_data.astype('float32')
+    valid_data = valid_data.astype('float32')
 
-    #convert values to float32 type as required
-    x_train = x_train.astype('float32')
-    x_val = x_val.astype('float32')
-
-    #now normalize the pixels to a range of unity
-    x_train /= 255
-    x_val /= 255
-
-    return x_train, x_val, y_train, y_val
-
-def load_test(path):
-    # load test data
-    test_csv = pds.read_csv(path)
-
-    x = test_csv.iloc[:, 1:].values
-    y = test_csv.iloc[:, 0].values
-    print("TEST: The input shape is" + str(x.shape))
-    print("TEST: The labels shape is" + str(y.shape))
-
-    y_test = keras.utils.to_categorical(y)
-
-    x_test = x.reshape(x.shape[0], height, width, 1)
-
-    x_test = x_test.astype('float32')
-
-    x_test /= 255
-
-    return x_test, y_test, test_csv
-
-def conv_model(no_of_classes):
-    model = Sequential()
-
-    model.add(Conv2D(32, (5, 5), input_shape = (28, 28, 1), activation = 'relu', padding = 'same')) #first convolution unit
-    model.add(Conv2D(32, (4, 4), activation = 'relu', padding = 'same'))
-    model.add(MaxPooling2D(pool_size=(2,2), strides = 2))
-    model.add(Dropout(0.2))
-
-    model.add(Conv2D(64, (3, 3), activation = 'relu', padding = 'same'))  # second convolution unit
-    model.add(MaxPooling2D(pool_size = (2, 2), strides = 2))
-    model.add(Conv2D(64, (2, 2), activation = 'relu', padding = 'same'))
-    model.add(MaxPooling2D(pool_size = (2, 2), strides = 2))
-    model.add(Dropout(0.3))
-
-    model.add(Conv2D(64, (3, 3), activation = 'relu', padding = 'same'))  # third convolution unit
+    train_data /= 255
+    valid_data /= 255
     
-    model.add(MaxPooling2D(pool_size = (2, 2), strides = 2))
-    model.add(Dropout(0.25))
 
-    model.add(Flatten())
-    model.add(Dense(256, activation = 'relu')) #final dense layer for classification
-    model.add(Dropout(0.3))
-    model.add(Dense(no_of_classes, activation = 'softmax'))  #final output layer with 10 classes
+    return train_data, train_label, valid_data, valid_label
 
-    return model
+def load_test (path):
+    test = pd.read_csv('fashionmnist/fashion-mnist_test.csv') #Load test data
 
-def augment_data(model, x_train, x_test, y_train, y_test):
-    # randomly augment data to reduce overfitting
-    datagen = ImageDataGenerator(zoom_range = 0.2,
-            rotation_range = 10,
-            width_shift_range = 0.1,
-            height_shift_range = 0.1,
-            horizontal_flip = True,
-            vertical_flip = False)
+    data_test = np.array(test.iloc[:, 1:])
+    labels_test = to_categorical(np.array(test.iloc[:, 0]))
 
-    # Fit the model on the batches generated by datagen.flow().
-    history = model.fit_generator(datagen.flow(x_train, y_train, batch_size = batch),
-                                  steps_per_epoch = int(np.ceil(x_train.shape[0] / float(batch_size))),   #borrowed from stack overflow answer - steps_per_epoch: Total number of steps (batches of samples) to yield from generator before declaring one epoch finished and starting the next epoch.
-                                  #It should typically be equal to the number of unique samples of your dataset divided by the batch size.
-                                  epochs = epochs,
-                                  validation_data = (x_test, y_test),
-                                  max_queue_size = 10,
-                                  workers = 3, use_multiprocessing = True)
+    data_test = data_test.reshape(data_test.shape[0], row, col, 1)
+    data_test = data_test.astype('float32')
 
-    evaluated = model.evaluate(x_test, y_test)
+    data_test /= 255
 
-    return history, evaluated
+    return data_test, labels_test, test
 
-
-def plot_accuracy(fit):
+def accuracy_plot (history):
     plot.figure(figsize = [8, 8])
-    plot.plot(fit.history['val_acc'],'g',linewidth = 2.0)
-    plot.plot(fit.history['acc'],'r', linewidth = 2.0)
+    plot.plot(history['val_acc'],'g',linewidth = 2.0)
+    plot.plot(history['acc'],'r', linewidth = 2.0)
     plot.legend(['Training Accuracy', 'Validation Accuracy'], fontsize = 14)
     plot.xlabel('epochs ', fontsize = 14)
     plot.ylabel('accuracy', fontsize = 14)
     plot.title('accuracy vs epochs', fontsize = 14)
     plot.show()
 
-def plot_loss(fit):
+def loss_plot (history):
     plot.figure(figsize = [8, 8])
-    plot.plot(fit.history['val_loss'],'g', linewidth = 2.0)
-    plot.plot(fit.history['loss'],'r', linewidth = 2.0)
+    plot.plot(history['val_loss'],'g', linewidth = 2.0)
+    plot.plot(history['loss'],'r', linewidth = 2.0)
     plot.legend(['Training loss', 'Validation Loss'], fontsize = 14)
     plot.xlabel('epochs ', fontsize = 14)
     plot.ylabel('loss', fontsize = 14)
     plot.title('loss vs epochs', fontsize = 14)
     plot.show()
 
-def prediction(conv, x_test, test):
-    predicted = conv.predict_classes(x_test)
-
-    #get all samples for plotting
-    y_actual = test.iloc[:, 0]
-    correct = np.nonzero(predicted == y_actual)[0]
-    incorrect = np.nonzero(predicted != y_actual)[0]
-
-    targets = ["Class {}".format(i) for i in range(classes)]
-    print(classification_report(y_actual, predicted, target_names = targets))
+def class_report (test, data_test):
+    predicted_classes = model.predict_classes(data_test)
+    y_true = test.iloc[:, 0]
+    correct = np.nonzero(predicted_classes==y_true)[0]
+    incorrect = np.nonzero(predicted_classes!=y_true)[0]
+    target_names = ["Class {}".format(i) for i in range(10)]
+    print(classification_report(y_true, predicted_classes, target_names=target_names))
 
 
-if __name__ == '__main__':
-    start = time.time()
-    augment_flag = input("Enter 1 for augmentation, else enter 0: ")
-    x_train, x_val, y_train, y_val = load_train('fashionmnist/fashion-mnist_train.csv')
-    conv = conv_model(classes)
 
-    conv.compile(loss = 'categorical_crossentropy', optimizer = 'rmsprop', metrics = ['accuracy'])
-    print(conv.summary()) #print the summary of the model
 
-    x_test, y_test, test_csv = load_test('fashionmnist/fashion-mnist_test.csv') #load the test dataset
+def Model_init (train_data, train_label, valid_data, valid_label, data_test, labels_test): 
+    model = Sequential()
 
-    if augment_flag != 1:
-        history = conv.fit(x_train, y_train, batch_size = batch,
-              epochs = epochs,
-              verbose = 1,
-              validation_data = (x_val, y_val))
+    model.add(Conv2D(32, (3, 3), strides = 2, input_shape=(28,28,1), activation='relu', padding = 'same'))
+    model.add(MaxPooling2D(pool_size=(2,2)))
+    model.add(Dropout(0.3))
 
-        evaluated = conv.evaluate(x_test, y_test, verbose=0)
+    # second convolutional + max pooling layer
+    model.add(Conv2D(64, (3, 3), activation = 'relu', padding = 'same'))
+    model.add(MaxPooling2D(pool_size = (2, 2)))
+    model.add(Dropout(0.25))
+
+    # Third convolutional layer
+    model.add(Conv2D(128, (3, 3), activation = 'relu', padding = 'same'))
+    model.add(Dropout(0.4))
+
+    model.add(Flatten())  
+    model.add(Dense(128, activation='relu'))     
+    model.add(Dense(10, activation='softmax'))  
+
+    # Compiling CNN
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics = ['accuracy'])
+
+    model.summary()
+
+    if augment == 0:
+        history = model.fit(train_data, train_label, validation_data = (valid_data, valid_label), batch_size = batch_size, epochs = epochs)
 
     else:
-        history, evaluated = augment_data(conv, x_train, x_test, y_train, y_test)
 
-    plot_accuracy(history) # plot the accuracy curves
-    plot_loss(history) # plot the loss curves
+        datagen = ImageDataGenerator(
+#         zoom_range=0.2, # randomly zoom into images
+#         rotation_range=10,  # randomly rotate images in the range (degrees, 0 to 180)
+        width_shift_range=0.1,  # randomly shift images horizontally (fraction of total width)
+        height_shift_range=0.1,  # randomly shift images vertically (fraction of total height)
+        horizontal_flip=True,  # randomly flip images
+        vertical_flip=False)  # randomly flip images
 
-    print('MAIN: Loss for Test set: ', evaluated[0])
-    print('MAIN: Accuracy for Test set: ', evaluated[1])
+        print(train_data.shape)
+        history = model.fit_generator(datagen.flow(train_data, train_label, batch_size=batch_size),
+                              epochs=epochs,
+                              validation_data=(valid_data, valid_label),
+                              workers=4)
 
-    print("Full process took: " + str(time.time()-start) + " amount of time.")
 
-    prediction(conv, x_test, test_csv) #final predicted metrics
+    scores = model.evaluate(data_test, labels_test, verbose = 1)
+    print ('Accuracy : {}'.format(scores[1]))
+
+
+    return model, history
+
+
+
+
+if __name__ == "__main__":
+
+    
+    train_data, train_label, valid_data, valid_label = load_train('fashionmnist/fashion-mnist_train.csv')
+    #print(train_data.shape)
+    data_test, labels_test, test = load_test('fashionmnist/fashion-mnist_test.csv')
+
+    # ***Preprocessing done ***
+
+    conv_model, history = Model_init(train_data, train_label, valid_data, valid_label, data_test, labels_test)
+    loss_plot (history)
+    accuracy_plot (history)
+    class_report (test, data_test)
+
+    
+    
